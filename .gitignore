@@ -1,0 +1,15 @@
+# Ignore everything in the same directory as the .gitignore file
+/*
+
+# But not these files...
+!.vscode/settings.json
+!.vscode/snippets.code-snippets
+!.vscode/tasks.json
+!.gitignore
+!base.h
+!binary_search.h
+!CMakeLists.txt
+!gen.py
+!hash.h
+!number_theory.h
+
