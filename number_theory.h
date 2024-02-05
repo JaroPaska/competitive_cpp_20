@@ -119,7 +119,7 @@ constexpr auto extended_euclid(T a, T b, T& x, T& y) noexcept -> T {
     return gpf;
 }
 
-#define STATIC_SIEVE(n) STATIC_ARRAY(nt::sieve(n), n + 1)
+#define STATIC_SIEVE(n) STATIC_ARRAY(sieve(n), n + 1)
 
 bool miller_test(int64_t n, int64_t d, int64_t r, int64_t a) {
     int64_t x = mod_exp(a, d, n);

@@ -7,6 +7,7 @@
 #include <chrono>
 #include <climits>
 #include <forward_list>
+#include <functional>
 #include <iomanip>
 #include <iostream>
 #include <list>
@@ -26,6 +27,7 @@
 #include <unordered_map>
 #include <unordered_set>
 #include <utility>
+#include <typeinfo>
 #include <type_traits>
 #include <valarray>
 #include <variant>
@@ -140,34 +142,7 @@ TIMER(timer);
     return x ^ (x >> 31);
 }
 
-struct CustomHash {
-    template<class T>
-    [[nodiscard]] auto operator()(const T& x) const noexcept -> std::size_t {
-        return static_cast<std::size_t>(splitmix64(std::hash<T>()(x) + timer.start.time_since_epoch().count()));
-    }
-
-    template<class T>
-    auto hash_combine(std::size_t& seed, const T& v) const noexcept -> void {
-        seed ^= operator()(v) + 0x9e3779b9 + (seed << 6) + (seed >> 2);
-    }
-
-    template<class T1, class T2>
-    [[nodiscard]] auto operator()(const std::pair<T1, T2>& p) const noexcept -> std::size_t {
-        size_t seed = 0;
-        hash_combine(seed, p.first);
-        hash_combine(seed, p.second);
-        return seed;
-    }
-
-    template<class... Types>
-    [[nodiscard]] auto operator()(const std::tuple<Types...>& t) const noexcept -> std::size_t {
-        std::size_t seed = 0;
-        std::apply([&](const Types&... args) {
-            (hash_combine(seed, args), ...);
-        }, t);
-        return seed;
-    }
-};
+class Hasher;
 
 template<size_t N, class T>
 [[nodiscard]] consteval auto static_array(const vector<T>& v) noexcept -> array<T, N> {
@@ -277,10 +252,10 @@ template<typename Key, typename Mapped, typename Cmp_Fn = less<Key>>
 using tree_map = tree<Key, Mapped, Cmp_Fn, rb_tree_tag, tree_order_statistics_node_update>;
 
 template<typename Key>
-using hash_set = gp_hash_table<Key, null_type, CustomHash>;
+using hash_set = gp_hash_table<Key, null_type, Hasher>;
 
 template<typename Key, typename Mapped>
-using hash_map = gp_hash_table<Key, Mapped, CustomHash>;
+using hash_map = gp_hash_table<Key, Mapped, Hasher>;
 
 template<typename Key, typename Cmp_Fn, typename Tag, template<typename Const_Node_Iterator, typename Node_Iterator, typename Cmp_Fn_, typename Allocator_> class Node_Update, typename Allocator>
 struct is_set<tree<Key, null_type, Cmp_Fn, Tag, Node_Update, Allocator>> : true_type {};
@@ -303,10 +278,10 @@ struct is_map<gp_hash_table<Key, Mapped, Hash_Fn, Eq_Fn, Comp_Probe_Fn, Probe_Fn
 #else
 
 template<typename Key>
-using hash_set = unordered_set<Key, CustomHash>;
+using hash_set = unordered_set<Key, Hasher>;
 
 template<typename Key, typename Mapped>
-using hash_map = unordered_map<Key, Mapped, CustomHash>;
+using hash_map = unordered_map<Key, Mapped, Hasher>;
 
 #endif
 
@@ -456,6 +431,49 @@ concept PrettyPrintable = Pair<T> || Tuple<T> || List<T> || Set<T> || Map<T> || 
 auto operator<<(ostream& os, const PrettyPrintable auto& pp) -> ostream& {
     return printer.print(os, pp);
 }
+
+class Hasher {
+public:
+    [[nodiscard]] auto operator()(const auto& x) const noexcept -> size_t {
+        return hash(x, rank<1>());
+    }
+
+private:
+    template<class T>
+    [[nodiscard]] auto hash(const T& x, rank<0>) const noexcept -> size_t {
+        return static_cast<size_t>(splitmix64(::std::hash<T>()(x) + timer.start.time_since_epoch().count()));
+    }
+
+    auto hash_combine(size_t& seed, const auto& v) const noexcept -> void {
+        seed ^= operator()(v) + 0x9e3779b9 + (seed << 6) + (seed >> 2);
+    }
+
+    [[nodiscard]] auto hash(const Pair auto& p, rank<1>) const noexcept -> size_t {
+        size_t seed = 0;
+        hash_combine(seed, p.first);
+        hash_combine(seed, p.second);
+        return seed;
+    }
+
+    [[nodiscard]] auto hash(const Tuple auto& t, rank<1>) const noexcept -> size_t {
+        size_t seed = 0;
+        apply([&](const auto&... args) {
+            (hash_combine(seed, args), ...);
+        }, t);
+        return seed;
+    }
+
+    [[nodiscard]] auto hash(const List auto& l, rank<1>) const noexcept -> size_t {
+        size_t seed = 0;
+        for (const auto& x : l)
+            hash_combine(seed, x);
+        return seed;
+    }
+
+    [[nodiscard]] auto hash(const Adaptor auto& a, rank<1>) const noexcept -> size_t {
+        return operator()(get_container(a));
+    }
+};
 
 [[nodiscard]] constexpr auto is_whitespace(char c) noexcept -> bool {
     switch (c) {
